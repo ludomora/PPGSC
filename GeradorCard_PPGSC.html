@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Card - UNIFESP</title>
+    
+    <!-- Importando a fonte Bree Serif -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bree+Serif&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-blue: #183050;
+            --bg-color: #f0f2f5;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            color: var(--primary-blue);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+            justify-content: center;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .controls {
+            flex: 1;
+            min-width: 300px;
+            max-width: 400px;
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            height: fit-content;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        input[type="text"], input[type="file"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-family: inherit;
+        }
+
+        /* Estilo específico para permitir quebra de linha visual no input */
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        button {
+            background-color: var(--primary-blue);
+            color: white;
+            border: none;
+            padding: 15px;
+            width: 100%;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #0f1e33;
+        }
+
+        .warning {
+            color: red;
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .preview-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        canvas {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            cursor: move; 
+            max-height: 80vh;
+        }
+
+        .instructions {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        #logo-source {
+            display: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Gerador de Card Institucional</h1>
+
+    <!-- IMPORTANTE: O arquivo 'barra-logos.png' deve estar na mesma pasta -->
+    <img id="logo-source" src="barra-logos.png" alt="Barra de Logos" onload="drawCanvas()">
+
+    <div class="container">
+        
+        <div class="controls">
+            <div class="input-group">
+                <label for="upload">1. Escolha a Foto</label>
+                <input type="file" id="upload" accept="image/*">
+            </div>
+
+            <div class="input-group">
+                <label for="zoom">2. Ajuste o Zoom</label>
+                <input type="range" id="zoom" min="0.1" max="3" step="0.05" value="1" disabled>
+                <small style="color:#666; display:block; margin-top:5px;">Arraste a foto na visualização para mover.</small>
+            </div>
+
+            <div class="input-group">
+                <label for="headline">3. Texto do Título</label>
+                <!-- Mudado para textarea para suportar ENTER -->
+                <textarea id="headline" placeholder="Digite seu texto aqui...&#10;Pressione Enter para pular linha"></textarea>
+                <div id="text-warning" class="warning">Texto muito longo! Reduza para no máximo 3 linhas.</div>
+            </div>
+
+            <button id="download-btn">Baixar Imagem (PNG)</button>
+        </div>
+
+        <div class="preview-area">
+            <canvas id="canvas" width="1080" height="1350"></canvas>
+            <p class="instructions">Formato 4:5 (Ideal para Feed/Instagram)</p>
+        </div>
+
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const uploadInput = document.getElementById('upload');
+        const textInput = document.getElementById('headline');
+        const zoomInput = document.getElementById('zoom');
+        const downloadBtn = document.getElementById('download-btn');
+        const logoImg = document.getElementById('logo-source');
+        const textWarning = document.getElementById('text-warning');
+
+        // Variáveis de Estado
+        let userImg = new Image();
+        let imgLoaded = false;
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let startX, startY;
+
+        // Configurações Fixas
+        const CANVAS_WIDTH = 1080;
+        const CANVAS_HEIGHT = 1350;
+        const LOGO_BAR_HEIGHT = 200; 
+        
+        // Configurações de Texto e Caixa
+        const FONT_SIZE = 55;
+        const LINE_HEIGHT = 70; // Altura da linha de texto
+        
+        // PAD_Y: Padding vertical (Topo e Base da caixa azul) - Reduzido conforme pedido
+        const PAD_Y = 20; 
+        // PAD_X: Padding horizontal (Laterais da caixa azul)
+        const PAD_X = 35; 
+        
+        const BOX_COLOR = "#183050"; 
+        const MAX_LINES = 3;
+
+        window.onload = function() {
+            drawCanvas();
+        };
+
+        // 1. Upload
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                userImg = new Image();
+                userImg.onload = () => {
+                    imgLoaded = true;
+                    zoomInput.disabled = false;
+                    resetImagePosition();
+                    drawCanvas();
+                };
+                userImg.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function resetImagePosition() {
+            const scaleW = CANVAS_WIDTH / userImg.width;
+            const scaleH = CANVAS_HEIGHT / userImg.height;
+            let baseScale = Math.max(scaleW, scaleH);
+            scale = baseScale;
+            zoomInput.value = scale;
+            zoomInput.min = baseScale * 0.5;
+            zoomInput.max = baseScale * 3;
+            offsetX = (CANVAS_WIDTH - userImg.width * scale) / 2;
+            offsetY = (CANVAS_HEIGHT - userImg.height * scale) / 2;
+        }
+
+        // 2. Zoom
+        zoomInput.addEventListener('input', (e) => {
+            if (!imgLoaded) return;
+            const oldScale = scale;
+            scale = parseFloat(e.target.value);
+            offsetX = offsetX - (userImg.width * (scale - oldScale)) / 2;
+            offsetY = offsetY - (userImg.height * (scale - oldScale)) / 2;
+            drawCanvas();
+        });
+
+        // 3. Atualização de Texto (Input)
+        textInput.addEventListener('input', () => {
+            drawCanvas();
+        });
+
+        // 4. Arrastar (Pan)
+        canvas.addEventListener('mousedown', startDrag);
+        canvas.addEventListener('touchstart', startDrag, {passive: false});
+        canvas.addEventListener('mousemove', drag);
+        canvas.addEventListener('touchmove', drag, {passive: false});
+        canvas.addEventListener('mouseup', endDrag);
+        canvas.addEventListener('mouseleave', endDrag);
+        canvas.addEventListener('touchend', endDrag);
+
+        function startDrag(e) {
+            if (!imgLoaded) return;
+            isDragging = true;
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            startX = clientX - offsetX;
+            startY = clientY - offsetY;
+            e.preventDefault();
+        }
+
+        function drag(e) {
+            if (!isDragging || !imgLoaded) return;
+            e.preventDefault();
+            const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+            offsetX = clientX - startX;
+            offsetY = clientY - startY;
+            drawCanvas();
+        }
+
+        function endDrag() {
+            isDragging = false;
+        }
+
+        // 5. Função Principal de Desenho
+        function drawCanvas() {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillStyle = "#eee";
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // A. Foto do usuário
+            if (imgLoaded) {
+                ctx.drawImage(userImg, offsetX, offsetY, userImg.width * scale, userImg.height * scale);
+            }
+
+            // B. Barra branca
+            const footerY = CANVAS_HEIGHT - LOGO_BAR_HEIGHT;
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, footerY, CANVAS_WIDTH, LOGO_BAR_HEIGHT);
+
+            // C. Logos
+            if (logoImg.complete && logoImg.naturalHeight !== 0) {
+                const logoRatio = logoImg.width / logoImg.height;
+                let drawLogoH = LOGO_BAR_HEIGHT * 0.7;
+                let drawLogoW = drawLogoH * logoRatio;
+                if (drawLogoW > CANVAS_WIDTH * 0.9) {
+                    drawLogoW = CANVAS_WIDTH * 0.9;
+                    drawLogoH = drawLogoW / logoRatio;
+                }
+                const logoX = (CANVAS_WIDTH - drawLogoW) / 2;
+                const logoY = footerY + (LOGO_BAR_HEIGHT - drawLogoH) / 2;
+                ctx.drawImage(logoImg, logoX, logoY, drawLogoW, drawLogoH);
+            }
+
+            // D. Texto e Caixa Azul
+            const text = textInput.value;
+            if (text.trim() !== "") {
+                drawTextBox(text);
+            }
+        }
+
+        function drawTextBox(text) {
+            ctx.font = `${FONT_SIZE}px 'Bree Serif'`;
+            
+            // Lógica de Quebra de Linha (Manual + Automática)
+            const maxTextWidth = CANVAS_WIDTH - 100; // Largura máx permitida
+            
+            // 1. Divide pelos "Enter" manuais (\n)
+            const paragraphs = text.split('\n');
+            let finalLines = [];
+
+            // 2. Processa cada parágrafo para ver se precisa quebrar por largura
+            paragraphs.forEach(paragraph => {
+                const words = paragraph.split(' ');
+                let currentLine = words[0];
+
+                for (let i = 1; i < words.length; i++) {
+                    let width = ctx.measureText(currentLine + " " + words[i]).width;
+                    if (width < maxTextWidth) {
+                        currentLine += " " + words[i];
+                    } else {
+                        finalLines.push(currentLine);
+                        currentLine = words[i];
+                    }
+                }
+                finalLines.push(currentLine);
+            });
+
+            // Validação de limite de linhas
+            if (finalLines.length > MAX_LINES) {
+                textWarning.style.display = "block";
+                finalLines = finalLines.slice(0, MAX_LINES); 
+                finalLines[MAX_LINES -1] += "...";
+            } else {
+                textWarning.style.display = "none";
+            }
+
+            // Cálculos da Caixa
+            const boxTopY = 80;
+            // Altura: (Nº Linhas * Altura Linha) + (Padding Top + Padding Bottom)
+            const boxHeight = (finalLines.length * LINE_HEIGHT) + (PAD_Y * 2);
+            
+            // Largura: A maior linha + padding lateral
+            let maxLineWidth = 0;
+            finalLines.forEach(line => {
+                const w = ctx.measureText(line).width;
+                if (w > maxLineWidth) maxLineWidth = w;
+            });
+            const boxWidth = maxLineWidth + (PAD_X * 2);
+
+            // Desenhar Caixa
+            ctx.fillStyle = BOX_COLOR;
+            ctx.fillRect(0, boxTopY, boxWidth, boxHeight);
+
+            // Desenhar Texto
+            ctx.fillStyle = "white";
+            ctx.textBaseline = "top"; // Mudado para TOP para facilitar alinhamento com padding
+            
+            for (let i = 0; i < finalLines.length; i++) {
+                // Cálculo Y: Topo da caixa + Padding Top + Deslocamento da linha + Ajuste óptico
+                // Ajuste óptico (+5) serve para centralizar visualmente a fonte na entrelinha
+                const lineY = boxTopY + PAD_Y + (i * LINE_HEIGHT) + 5; 
+                ctx.fillText(finalLines[i], PAD_X, lineY);
+            }
+        }
+
+        // 6. Download
+        downloadBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'card-evento-unifesp.png';
+            link.href = canvas.toDataURL('image/png', 1.0);
+            link.click();
+        });
+
+    </script>
+</body>
+</html>
